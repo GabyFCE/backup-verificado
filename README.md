@@ -1,48 +1,78 @@
 # backup-verificado
 
-Backup con verificación de integridad y **prueba de restauración automática**.
-Un backup que nunca se restauró es una hipótesis, no un backup.
+Copia archivos y carpetas a un zip, guarda el hash SHA-256 de cada archivo y
+verifica el resultado restaurándolo.
 
-Python 3.8+, solo biblioteca estándar. Linux, macOS y Windows.
-
-## El problema
-
-Tenía un backup semanal que se generaba solo y nunca se probaba. El día que hace
-falta es el peor día para descubrir que el zip está truncado, que faltó una
-carpeta o que el archivo adentro no es el que era.
-
-El chequeo habitual —abrir el zip y ver que no esté corrupto— no alcanza: valida
-el CRC del contenedor, no que el contenido coincida con el original. Un zip puede
-abrir perfecto y tener adentro datos que no son los que se respaldaron.
-
-## Qué hace
-
-1. Comprime las rutas indicadas en `destino/backup-AAAAMMDD-HHMMSS.zip`.
-2. Calcula el SHA-256 de **cada archivo** y lo guarda en un `MANIFEST.txt` dentro
-   del zip.
-3. Verifica el contenedor con `testzip()` antes de publicarlo.
-4. Publica de forma atómica (`os.replace`): nunca queda un zip a medio escribir
-   con nombre definitivo.
-5. Guarda el `sha256` del zip en un archivo `.sha256` al lado.
-6. **Restaura a un directorio temporal y compara hash y tamaño de cada archivo**
-   (`--restore-test`).
-7. Rota: conserva las últimas N copias y borra las viejas con su `.sha256`.
-8. Es silencioso si todo sale bien (patrón watchdog para cron).
+Python 3.8 o superior. Solo biblioteca estándar. Linux, macOS y Windows.
 
 ## Uso
 
 ```bash
-# backup semanal, verificado
+# crear backup y verificar la restauración
 python3 backup.py --source ~/kb --source ~/datos --dest ~/backups --keep 8 --restore-test
 
-# verificar un backup viejo sin crear nada
+# verificar un backup existente sin crear nada
 python3 backup.py --check ~/backups/backup-20261123-211517.zip
 
-# salida para monitoreo
+# salida JSON para monitoreo
 python3 backup.py --source ~/kb --dest ~/backups --restore-test --json
 ```
 
-Cron (domingo 15:10, avisa solo si falla):
+| Opción | Descripción |
+|---|---|
+| `--source RUTA` | Archivo o carpeta a respaldar. Se puede repetir. |
+| `--dest DIR` | Carpeta donde se escriben los backups. |
+| `--keep N` | Copias a conservar. Por defecto 8. `0` no borra nada. |
+| `--restore-test` | Después de crear el backup, lo extrae a un directorio temporal y compara hash y tamaño de cada archivo. |
+| `--check ARCHIVO` | Verifica un backup existente. No crea nada. |
+| `--json` | Escribe el resultado como JSON en una línea. |
+| `-v`, `--verbose` | Imprime el resumen de la corrida. |
+
+## Qué hace
+
+1. Recorre las rutas de `--source` y descarta `__pycache__`, `.git`, `.venv`,
+   `node_modules`, `cache`, archivos `.pyc`, `.tmp` y metadatos del sistema.
+2. Escribe el zip en un archivo `.part` dentro del destino.
+3. Calcula el SHA-256 de cada archivo y lo agrega a `MANIFEST.txt` dentro del zip.
+4. Verifica el zip cerrado con `testzip()`.
+5. Renombra el `.part` al nombre definitivo con `os.replace`.
+6. Escribe el SHA-256 del zip en un archivo `.sha256`.
+7. Borra las copias más viejas que `--keep`.
+8. No imprime nada si la corrida sale bien, salvo con `-v` o `--json`.
+
+## Formato
+
+```
+backup-AAAAMMDD-HHMMSS.zip
+├── MANIFEST.txt          # sha256, tamaño y ruta de cada archivo
+└── <origen>/...          # archivos respaldados
+backup-AAAAMMDD-HHMMSS.zip.sha256
+```
+
+Cada línea del manifiesto tiene el formato `sha256  tamaño  ruta`. La ruta puede
+contener espacios.
+
+## Verificación
+
+| Nivel | Qué comprueba | Cuándo |
+|---|---|---|
+| Contenedor | Que el zip no esté corrupto | `testzip()` antes de publicar el archivo |
+| Contenido | Que el hash de cada archivo coincida con el manifiesto | `--restore-test` o `--check` |
+| Restauración | Que los archivos se extraigan con el tamaño y el hash originales | `--restore-test` o `--check` |
+
+`testzip()` valida la estructura del zip, no el contenido. Un zip puede abrir sin
+errores y tener adentro datos distintos de los respaldados; la comparación de
+hashes cubre ese caso.
+
+## Códigos de salida
+
+| Código | Significado |
+|---|---|
+| 0 | Backup creado y verificado. |
+| 2 | No se pudo crear el backup, o el zip salió corrupto. La copia anterior no se modifica. |
+| 3 | El backup se creó, pero falló la verificación de contenido o de restauración. |
+
+## Cron
 
 ```cron
 10 15 * * 0 python3 /home/usuario/bin/backup.py --source /home/usuario/kb \
@@ -50,30 +80,10 @@ Cron (domingo 15:10, avisa solo si falla):
   cat /tmp/backup.log
 ```
 
-## Tres niveles de verificación
+## Ejemplo: contenido alterado
 
-| Nivel | Qué comprueba | Cómo |
-|---|---|---|
-| Contenedor | El zip no está corrupto | `testzip()` antes de publicar |
-| Contenido | Cada archivo coincide con su hash | SHA-256 por archivo en `MANIFEST.txt` |
-| Restauración | Lo guardado se puede recuperar igual | `--restore-test`: extrae y recompara hash y tamaño |
-
-El tercero es el que importa. Los dos primeros los tiene cualquier script; el
-tercero es el que convierte "tengo backups" en "sé que mis backups restauran".
-
-## Códigos de salida
-
-| Código | Significado | Qué hace el cron |
-|---|---|---|
-| 0 | Backup creado, verificado y restaurado | Nada |
-| 2 | No se pudo crear, o el zip salió corrupto | Avisa |
-| 3 | Se creó, pero no restaura fielmente | Avisa con prioridad |
-
-Distinguir 2 de 3 no es capricho: "no copió" y "copió mal" se investigan distinto.
-
-## Prueba de fuego
-
-Un zip que abre bien y no restaura fielmente, detectado por el script:
+Se reescribió un backup cambiando un byte por archivo, sin modificar tamaños ni
+manifiesto. `testzip()` lo acepta y `--check` no:
 
 ```
 $ python3 backup.py --check manipulado.zip
@@ -85,29 +95,11 @@ FALLA: manipulado.zip
 exit 3
 ```
 
-El zip se reescribió cambiando un byte por archivo, sin tocar tamaños ni el
-manifiesto. `testzip()` lo da por bueno; el restore test no.
+## Medición
 
-## Resultado medido
-
-- 23 archivos, 297 KB sin comprimir → 101 KB de zip, **0,10 s**.
-- Restore test: 23 archivos extraídos, 0 diferencias de hash.
-- Prueba de manipulación: 19 archivos alterados detectados, salida 3.
-
-## Decisiones de diseño
-
-- **Extraer y comparar, no solo `testzip()`**: el CRC no dice nada sobre la
-  fidelidad del contenido.
-- **Manifiesto adentro del zip**: el backup se explica a sí mismo; no depende de
-  un archivo externo que se puede perder.
-- **Escritura atómica**: un corte de luz a mitad de la copia no destruye la
-  última copia buena.
-- **Restore test sobre el backup recién creado, no sobre el origen**: prueba el
-  artefacto que realmente se va a guardar.
-- **Silencio en éxito**: un cron que manda mail todas las semanas se ignora en dos
-  meses. Solo habla cuando hay algo que hacer.
-- **Cero dependencias**: un archivo, stdlib, corre en cualquier lado. Un backup
-  que necesita `pip install` es un backup que un día no corre.
+Corrida sobre 23 archivos: 297 KB sin comprimir, 101 KB de zip, 0,10 s. La
+verificación restauró los 23 archivos sin diferencias. La prueba de manipulación
+detectó 19 archivos alterados y devolvió 3.
 
 ## Tests
 
@@ -115,24 +107,27 @@ manifiesto. `testzip()` lo da por bueno; el restore test no.
 python3 -m unittest discover -s tests -v
 ```
 
-Diez tests contra el CLI real: creación, manifiesto, filtros de basura, restore OK,
-manipulación de contenido, archivo faltante, zip corrupto, rotación, fuente
-inexistente, silencio en éxito.
+Diez tests que ejecutan el CLI: creación del zip, manifiesto, filtros de
+exclusión, restauración correcta, contenido alterado, archivo faltante, zip
+corrupto, rotación, ruta de origen inexistente y salida silenciosa.
 
-## Límites (honestos)
+## Estructura
 
-- No es incremental ni deduplica: cada corrida es un zip completo. Sirve para
-  decenas o cientos de MB, no para 100 GB.
-- No cifra ni sube a la nube: es la pata local. Para offsite, copiar el `.zip` y
-  el `.sha256` a otro disco o bucket, y verificar el hash allá.
-- No reemplaza un backup del sistema operativo ni de la base en caliente: para
-  SQLite u otras bases, conviene un dump consistente antes.
+```
+backup.py              # CLI
+tests/test_backup.py   # tests
+docs/RUNBOOK.md        # diagnóstico por código de salida y restauración manual
+.github/workflows/tests.yml
+```
 
-## Qué mejoraría
+## Límites
 
-- Envío a almacenamiento externo (S3/Backblaze) reutilizando el mismo `.sha256`.
-- Cifrado con `age` o `gpg` antes de publicar.
-- Backup incremental por bloques para volúmenes grandes.
+- Cada corrida genera un zip completo: no es incremental ni deduplica.
+- No cifra ni copia a otro equipo. Para una copia externa hay que mover el `.zip`
+  y su `.sha256`, y verificar el hash en destino.
+- No hace dumps de bases de datos en caliente. Para SQLite u otras bases conviene
+  un dump consistente antes de la corrida.
+- Pensado para volúmenes de hasta cientos de MB.
 
 ## Licencia
 
