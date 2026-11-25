@@ -43,7 +43,7 @@ Un respaldo es útil solo cuando se garantiza que el archivo existe y que su con
 - **Solo biblioteca estándar de Python (3.8+):** Se descartó el uso de paquetes externos de compresión o CLI para evitar la gestión de entornos virtuales y dependencias en servidores de destino, permitiendo la ejecución directa en Linux, macOS y Windows.
 - **Verificación por manifiesto SHA-256 en lugar de solo `testzip()`:** Se descartó confiar únicamente en la validación CRC del contenedor ZIP porque no detecta discrepancias lógicas entre el dato original y el almacenado si el contenedor es estructuralmente válido.
 - **Escritura atómica mediante archivo `.part` y `os.replace`:** Se descartó escribir directamente sobre el nombre final del archivo ZIP para evitar que interrupciones o fallos de disco dejen respaldos incompletos que entren en la rotación y reemplacen copias válidas anteriores.
-- **Respaldos completos por corrida en lugar de incrementales:** Se descartaron la deduplicación y las cadenas incrementales para eliminar la dependencia entre archivos; cada archivo `.zip` junto a su `.sha256` es autónomo y restaurable por sí mismo en volúmenes de hasta cientos de megabytes.
+- **Respaldos completos por corrida en lugar de incrementales:** Se descartaron la deduplicación y las cadenas incrementales para eliminar la dependencia entre archivos; cada archivo `.zip` junto a su `.sha256` es autónomo y se restaura por sí mismo.
 - **Salida silenciosa por defecto:** Se descartó imprimir progreso en ejecuciones exitosas sin banderas para evitar el envío de notificaciones innecesarias cuando la herramienta se ejecuta de forma desatendida, emitiendo salida solo ante errores o cuando se solicitan `-v` o `--json`.
 
 ## Estructura
