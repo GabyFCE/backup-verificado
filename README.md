@@ -3,19 +3,23 @@
 Copia archivos y carpetas a un zip, guarda el hash SHA-256 de cada archivo y
 verifica el resultado restaurándolo.
 
+Un backup sirve cuando se puede afirmar dos cosas: que el archivo está y que su contenido es
+el que se respaldó. La mayoría de las herramientas cubren la primera; este script cubre las
+dos y devuelve un código de salida que un cron puede interpretar.
+
 Python 3.8 o superior. Solo biblioteca estándar. Linux, macOS y Windows.
 
 ## Uso
 
 ```bash
 # crear backup y verificar la restauración
-python3 backup.py --source ~/kb --source ~/datos --dest ~/backups --keep 8 --restore-test
+python3 backup.py --source ~/documentos --source ~/proyectos --dest ~/backups --keep 8 --restore-test
 
 # verificar un backup existente sin crear nada
 python3 backup.py --check ~/backups/backup-20261123-211517.zip
 
 # salida JSON para monitoreo
-python3 backup.py --source ~/kb --dest ~/backups --restore-test --json
+python3 backup.py --source ~/documentos --dest ~/backups --restore-test --json
 ```
 
 | Opción | Descripción |
@@ -75,8 +79,8 @@ hashes cubre ese caso.
 ## Cron
 
 ```cron
-10 15 * * 0 python3 /home/usuario/bin/backup.py --source /home/usuario/kb \
-  --dest /home/usuario/backups --keep 8 --restore-test >/tmp/backup.log 2>&1 || \
+10 15 * * 0 python3 /home/usuario/bin/backup.py --source /srv/datos \
+  --dest /srv/backups --keep 8 --restore-test >/tmp/backup.log 2>&1 || \
   cat /tmp/backup.log
 ```
 
@@ -88,16 +92,16 @@ manifiesto. `testzip()` lo acepta y `--check` no:
 ```
 $ python3 backup.py --check manipulado.zip
 FALLA: manipulado.zip
-  - hash distinto: kb/README.md
-  - hash distinto: CONTEXTO.md
-  - hash distinto: NOTAS.md
+  - hash distinto: datos/informe-2026.pdf
+  - hash distinto: datos/planilla.csv
+  - hash distinto: notas/reunion.md
   ...
 exit 3
 ```
 
 ## Medición
 
-Corrida sobre 23 archivos: 297 KB sin comprimir, 101 KB de zip, 0,10 s. La
+Corrida sobre un corpus de prueba de 23 archivos: 297 KB sin comprimir, 101 KB de zip, 0,10 s. La
 verificación restauró los 23 archivos sin diferencias. La prueba de manipulación
 detectó 19 archivos alterados y devolvió 3.
 
