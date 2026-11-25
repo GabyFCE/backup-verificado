@@ -76,12 +76,14 @@ hashes cubre ese caso.
 | 2 | No se pudo crear el backup, o el zip salió corrupto. La copia anterior no se modifica. |
 | 3 | El backup se creó, pero falló la verificación de contenido o de restauración. |
 
-## Cron
+## Programarlo
+
+Una línea de crontab alcanza. El código de salida permite alertar sin leer el registro:
 
 ```cron
-10 15 * * 0 python3 /home/usuario/bin/backup.py --source /srv/datos \
-  --dest /srv/backups --keep 8 --restore-test >/tmp/backup.log 2>&1 || \
-  cat /tmp/backup.log
+# todos los domingos a las 15:10, con verificación de restauración
+10 15 * * 0 /usr/bin/python3 /opt/backup.py --source /srv/datos --dest /srv/backups \
+  --keep 8 --restore-test >>/var/log/backup.log 2>&1
 ```
 
 ## Ejemplo: contenido alterado
